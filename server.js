@@ -2,14 +2,14 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const cloudinary = require('cloudinary').v2;
+const cloudinary = require('cloudinary'); // pas .v2 ici
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// 1. Config Cloudinary
+// 1. Config Cloudinary v1
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_NAME,
   api_key: process.env.CLOUDINARY_KEY,
@@ -21,8 +21,8 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'speak-send-vocals',
-    resource_type: 'video', // Cloudinary met les audios en "video"
-    allowed_formats: ['mp3', 'wav', 'm4a', 'ogg', 'webm'],
+    resource_type: 'video', // pour audio/vocal
+    format: async (req, file) => 'mp3', // force en mp3
   },
 });
 const upload = multer({ storage: storage });
@@ -46,16 +46,10 @@ app.post('/upload-vocal', upload.single('vocal'), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Aucun fichier envoyé' });
     }
-    
-    // req.file.path = URL Cloudinary du vocal
-    const vocalUrl = req.file.path;
-    
-    // Ici tu peux sauver dans Mongo: { url: vocalUrl, userId: ... }
     res.status(200).json({ 
       message: 'Upload réussi', 
-      url: vocalUrl 
+      url: req.file.path 
     });
-
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
