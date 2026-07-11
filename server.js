@@ -1,65 +1,64 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-const cloudinary = require('cloudinary');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// 1. CORS - Autorise ton localhost + tout le monde
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
+console.log("Server starting...");
+
+// CORS pour tout le monde
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// 2. Config Cloudinary v1
+// Config Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_NAME,
   api_key: process.env.CLOUDINARY_KEY,
   api_secret: process.env.CLOUDINARY_SECRET
 });
+console.log("Cloudinary Config OK");
 
-// 3. Config Storage Cloudinary pour les vocaux
+// Storage Cloudinary
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'speak-send-vocals',
-    resource_type: 'video', // obligatoire pour audio
-    format: async (req, file) => 'mp3', // convertit tout en mp3
+    resource_type: 'auto', // auto détecte audio/video
   },
 });
-const upload = multer({ storage: storage });
-
-// 4. Connect Mongo
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.log(err));
-
-// 5. Route Test
-app.get('/', (req, res) => {
-  res.send('API SpeakSend is running');
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
 });
 
-// 6. Route Upload Vocal
-app.post('/upload-vocal', upload.single('vocal'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Aucun fichier envoyé' });
+// Routes
+app.get('/', (req, res) => res.send('API SpeakSend is running'));
+app.get('/ping', (req, res) => res.send('pong'));
+
+// Route Upload avec gestion d'erreur complète
+app.post('/upload-vocal', (req, res) => {
+  console.log("Requête reçue sur /upload-vocal");
+  upload.single('vocal')(req, res, function (err) {
+    if (err instanceof multer.MulterError) {
+      console.log("ERREUR MULTER:", err);
+      return res.status(500).json({ error: `Multer: ${err.message}` });
+    } else if (err) {
+      console.log("ERREUR UPLOAD:", err);
+      return res.status(500).json({ error: `Upload: ${err.message}` });
     }
-    console.log("Fichier reçu:", req.file.path);
-    res.status(200).json({ 
-      message: 'Upload réussi', 
-      url: req.file.path 
-    });
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ error: error.message });
-  }
+    
+    if (!req.file) {
+      console.log("AUCUN FICHIER");
+      return res.status(400).json({ error: 'Aucun fichier reçu' });
+    }
+    
+    console.log("FICHIER UPLOADE:", req.file.path);
+    res.json({ message: 'Upload réussi', url: req.file.path });
+  })
 });
 
 app.listen(PORT, () => {
