@@ -6,44 +6,39 @@ const path = require('path');
 const cors = require('cors');
 
 const app = express();
-app.use(cors()); // important pour que ton app Android puisse appeler
+app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const DB_FILE = path.join(__dirname, 'messages.json');
+if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, '[]');
 
-// Charger / Sauver messages JSON
-function loadMessages() {
-  if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, '[]');
-  return JSON.parse(fs.readFileSync(DB_FILE));
-}
-function saveMessages(msgs) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(msgs, null, 2));
-}
-
-// API historique
-app.get('/api/messages', (req, res) => {
-  res.json(loadMessages());
+// ROUTE TEST
+app.get('/', (req, res) => {
+  res.send('Backend OK ✅ Va sur /api/messages pour voir les messages');
 });
 
-// WebSocket temps réel
+// ROUTE POUR L'APP
+app.get('/api/messages', (req, res) => {
+  const msgs = JSON.parse(fs.readFileSync(DB_FILE));
+  res.json(msgs);
+});
+
+// WEBSOCKET
 wss.on('connection', ws => {
   ws.on('message', data => {
     const msg = JSON.parse(data);
     msg.time = new Date().toISOString();
-    
-    const msgs = loadMessages();
+    const msgs = JSON.parse(fs.readFileSync(DB_FILE));
     msgs.push(msg);
-    saveMessages(msgs);
-
-    // Broadcast à tous
+    fs.writeFileSync(DB_FILE, JSON.stringify(msgs, null, 2));
     wss.clients.forEach(client => {
       if (client.readyState === 1) client.send(JSON.stringify(msg));
     });
   });
 });
 
-const PORT = process.env.PORT || 3000; // Render donne le PORT auto
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Backend lancé sur ${PORT}`));
