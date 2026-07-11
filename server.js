@@ -21,12 +21,12 @@ mongoose.connect(process.env.MONGO_URI)
 .then(()=> console.log("MongoDB OK"))
 .catch(err=> console.log("Mongo ERR", err));
 
-// 2. SCHEMAS
+// 2. SCHEMAS - CORRIGE
 const UserSchema = new mongoose.Schema({
   nom: String,
   prenom: String,
-  username: {type: String, unique: true},
-  tel: {type: String, unique: true},
+  username: String, // plus unique
+  tel: {type: String, unique: true}, // seul le tel est unique
   password: String,
   createdAt: {type: Date, default: Date.now}
 });
@@ -75,18 +75,28 @@ const auth = (req, res, next) => {
 
 // ROUTES
 app.get('/', (req, res) => res.send('API SpeakSend is running'));
-app.get('/ping', (req, res) => res.send('pong'));
 
-// REGISTER
+// REGISTER - CORRIGE
 app.post('/register', async (req, res) => {
   try{
     const {nom, prenom, username, tel, password} = req.body;
+
+    const existTel = await User.findOne({tel});
+    if(existTel) return res.status(400).json({error: "Ce numéro existe déjà. Veuillez vous connecter."});
+
+    let finalUsername = username;
+    let counter = 1;
+    while(await User.findOne({username: finalUsername})){
+      finalUsername = username + counter;
+      counter++;
+    }
+
     const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({nom, prenom, username, tel, password: hash});
+    const user = await User.create({nom, prenom, username: finalUsername, tel, password: hash});
     const token = jwt.sign({id: user._id, tel: user.tel}, JWT_SECRET);
-    res.json({token, user: {nom, prenom, username, tel}});
+    res.json({token, user: {nom, prenom, username: finalUsername, tel}});
   } catch(e){
-    res.status(400).json({error: "Tel ou Username déjà pris"});
+    res.status(400).json({error: "Erreur serveur: " + e.message});
   }
 });
 
