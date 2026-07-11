@@ -22,12 +22,14 @@ cloudinary.config({
 });
 console.log("Cloudinary Config OK");
 
-// Storage Cloudinary
+// Storage Cloudinary - FORCE MP3
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'speak-send-vocals',
-    resource_type: 'auto', // auto détecte audio/video
+    resource_type: 'video', // video = gère aussi l'audio
+    format: 'mp3', // FORCE LA CONVERSION EN MP3
+    flags: 'attachment'
   },
 });
 const upload = multer({ 
@@ -39,7 +41,7 @@ const upload = multer({
 app.get('/', (req, res) => res.send('API SpeakSend is running'));
 app.get('/ping', (req, res) => res.send('pong'));
 
-// Route Upload avec gestion d'erreur complète
+// Route Upload
 app.post('/upload-vocal', (req, res) => {
   console.log("Requête reçue sur /upload-vocal");
   upload.single('vocal')(req, res, function (err) {
