@@ -1,139 +1,61 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-
+const fs = require('fs');
+const path = require('path');
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors({ origin: "*" }));
+// Fichier JSON pour sauvegarder
+const DB_FILE = path.join(__dirname, 'messages.json');
+
+// Middleware
+app.use(cors());
 app.use(express.json());
 
-console.log("Server starting...");
-
-// 1. MONGO
-mongoose.connect(process.env.MONGO_URI)
-.then(()=> console.log("MongoDB OK"))
-.catch(err=> console.log("Mongo ERR", err));
-
-// 2. SCHEMAS - CORRIGE
-const UserSchema = new mongoose.Schema({
-  nom: String,
-  prenom: String,
-  username: String, // plus unique
-  tel: {type: String, unique: true}, // seul le tel est unique
-  password: String,
-  createdAt: {type: Date, default: Date.now}
-});
-const User = mongoose.model('User', UserSchema);
-
-const MessageSchema = new mongoose.Schema({
-  from: String,
-  to: String,
-  url: String,
-  createdAt: {type: Date, default: Date.now}
-});
-const Message = mongoose.model('Message', MessageSchema);
-
-// 3. CLOUDINARY
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_NAME,
-  api_key: process.env.CLOUDINARY_KEY,
-  api_secret: process.env.CLOUDINARY_SECRET
-});
-console.log("Cloudinary Config OK");
-
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'speak-send-vocals',
-    resource_type: 'video',
-    format: 'mp3',
-    flags: 'attachment'
-  },
-});
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
-
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// Middleware auth
-const auth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if(!token) return res.status(401).json({error: "Non autorisé"});
-  try{
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch{
-    res.status(401).json({error: "Token invalide"});
-  }
+// Charger les messages au démarrage
+let messages = [];
+if (fs.existsSync(DB_FILE)) {
+  messages = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
 }
 
-// ROUTES
-app.get('/', (req, res) => res.send('API SpeakSend is running'));
+// Fonction pour sauvegarder
+function saveMessages() {
+  fs.writeFileSync(DB_FILE, JSON.stringify(messages, null, 2));
+}
 
-// REGISTER - CORRIGE
-app.post('/register', async (req, res) => {
-  try{
-    const {nom, prenom, username, tel, password} = req.body;
-
-    const existTel = await User.findOne({tel});
-    if(existTel) return res.status(400).json({error: "Ce numéro existe déjà. Veuillez vous connecter."});
-
-    let finalUsername = username;
-    let counter = 1;
-    while(await User.findOne({username: finalUsername})){
-      finalUsername = username + counter;
-      counter++;
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({nom, prenom, username: finalUsername, tel, password: hash});
-    const token = jwt.sign({id: user._id, tel: user.tel}, JWT_SECRET);
-    res.json({token, user: {nom, prenom, username: finalUsername, tel}});
-  } catch(e){
-    res.status(400).json({error: "Erreur serveur: " + e.message});
-  }
+// Routes
+app.get('/', (req, res) => {
+  res.json({ status: "API Chat Public OK", messages: messages.length });
 });
 
-// LOGIN
-app.post('/login', async (req, res) => {
-  const {tel, password} = req.body;
-  const user = await User.findOne({tel});
-  if(!user) return res.status(400).json({error: "Utilisateur introuvable"});
-  const ok = await bcrypt.compare(password, user.password);
-  if(!ok) return res.status(400).json({error: "Mot de passe incorrect"});
-  const token = jwt.sign({id: user._id, tel: user.tel}, JWT_SECRET);
-  res.json({token, user: {nom: user.nom, prenom: user.prenom, username: user.username, tel: user.tel}});
-});
-
-// GET ALL USERS sauf moi
-app.get('/users', auth, async (req, res) => {
-  const users = await User.find({tel: {$ne: req.user.tel}}).select('-password');
-  res.json(users);
-});
-
-// UPLOAD VOCAL
-app.post('/upload-vocal', auth, upload.single('vocal'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
-  const {to} = req.body;
-  const msg = await Message.create({from: req.user.tel, to, url: req.file.path});
-  res.json({ message: 'Upload réussi', url: req.file.path, msg });
-});
-
-// GET MESSAGES
-app.get('/messages/:otherTel', auth, async (req, res) => {
-  const {otherTel} = req.params;
-  const messages = await Message.find({
-    $or: [{from: req.user.tel, to: otherTel}, {from: otherTel, to: req.user.tel}]
-  }).sort({createdAt: 1});
+// GET: Récupérer tous les messages
+app.get('/api/messages', (req, res) => {
   res.json(messages);
 });
 
+// POST: Poster un nouveau message
+app.post('/api/messages', (req, res) => {
+  const { user, texte } = req.body;
+  
+  if(!user || !texte || texte.trim() === "") {
+    return res.status(400).json({error: "Pseudo et message requis"});
+  }
+
+  const nouveauMessage = {
+    id: Date.now(),
+    user: user.trim(),
+    texte: texte.trim(),
+    heure: new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})
+  };
+
+  messages.unshift(nouveauMessage);
+  if(messages.length > 100) messages.pop();
+  
+  saveMessages(); // Sauvegarde dans le json
+  
+  res.status(201).json(nouveauMessage);
+});
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`API lancée sur le port ${PORT}`);
 });
